@@ -16,15 +16,28 @@ class OrderService : AccessibilityService() {
     private var tv: TextView? = null
     private var lastKey = ""
 
+    private var lastDiag = 0L
+
     override fun onAccessibilityEvent(e: AccessibilityEvent?) {
-        val root = rootInActiveWindow ?: return
+        val pkg = e?.packageName?.toString() ?: return
+        if (!pkg.contains("yandex") && !pkg.contains("taximeter")) return
         val texts = ArrayList<String>()
-        collect(root, texts)
-        val o = Parser.parse(texts) ?: return
-        val key = "${o.price}|${o.pickupKm}|${o.tripKm}"
+        try { windows?.forEach { collect(it.root, texts) } } catch (_: Exception) {}
+        if (texts.isEmpty()) collect(rootInActiveWindow, texts)
+        val o = Parser.parse(texts)
+        if (o == null) { diag(pkg, texts); return }
+        val key = "${o.price}|${o.pickupKm}|${o.tripMin}"
         if (key == lastKey) return
         lastKey = key
         show(o)
+    }
+
+    private fun diag(pkg: String, texts: List<String>) {
+        if (!getSharedPreferences("s", MODE_PRIVATE).getBoolean("debug", true)) return
+        val now = System.currentTimeMillis()
+        if (now - lastDiag < 4000) return
+        lastDiag = now
+        showText("Вижу: $pkg\nтекстов: ${texts.size}\n" + texts.joinToString("|").take(300), Color.rgb(90, 90, 90))
     }
 
     private fun collect(n: AccessibilityNodeInfo?, out: MutableList<String>) {
@@ -74,6 +87,10 @@ class OrderService : AccessibilityService() {
         if (debug) lines.add("[" + o.raw.take(250) + "]")
         val txt = lines.joinToString("\n")
 
+        showText(txt, color)
+    }
+
+    private fun showText(txt: String, color: Int) {
         val wm = getSystemService(WINDOW_SERVICE) as WindowManager
         tv?.let { try { wm.removeView(it) } catch (_: Exception) {} }
         val v = TextView(this).apply {
